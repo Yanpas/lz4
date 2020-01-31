@@ -72,7 +72,6 @@ typedef enum { noDictCtx, usingDictCtxHc } dictCtx_directive;
 
 /*===   Constants   ===*/
 #define OPTIMAL_ML (int)((ML_MASK-1)+MINMATCH)
-#define LZ4_OPT_NUM   (1<<12)
 
 
 /*===   Macros   ===*/
@@ -785,7 +784,7 @@ LZ4_FORCE_INLINE int LZ4HC_compress_generic_internal (
         { lz4hc,   256, 16 },  /* 9 */
         { lz4opt,   96, 64 },  /*10==LZ4HC_CLEVEL_OPT_MIN*/
         { lz4opt,  512,128 },  /*11 */
-        { lz4opt,16384,LZ4_OPT_NUM },  /* 12==LZ4HC_CLEVEL_MAX */
+        { lz4opt,16384,LZ4_INTERNAL_OPT_NUM },  /* 12==LZ4HC_CLEVEL_MAX */
     };
 
     DEBUGLOG(4, "LZ4HC_compress_generic(ctx=%p, src=%p, srcSize=%d)", ctx, src, *srcSizePtr);
@@ -1210,16 +1209,6 @@ char* LZ4_slideInputBufferHC(void* LZ4HC_Data)
 }
 
 
-/* ================================================
- *  LZ4 Optimal parser (levels [LZ4HC_CLEVEL_OPT_MIN - LZ4HC_CLEVEL_MAX])
- * ===============================================*/
-typedef struct {
-    int price;
-    int off;
-    int mlen;
-    int litlen;
-} LZ4HC_optimal_t;
-
 /* price in bytes */
 LZ4_FORCE_INLINE int LZ4HC_literalsPrice(int const litlen)
 {
@@ -1287,8 +1276,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
                                     const dictCtx_directive dict,
                                     const HCfavor_e favorDecSpeed)
 {
-#define TRAILING_LITERALS 3
-    LZ4HC_optimal_t opt[LZ4_OPT_NUM + TRAILING_LITERALS];   /* ~64 KB, which is a bit large for stack... */
+    LZ4HC_optimal_t* opt = ctx->optimal;   /* ~64 KB, which is a bit large for stack... */
 
     const BYTE* ip = (const BYTE*) source;
     const BYTE* anchor = ip;
@@ -1303,7 +1291,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
     DEBUGLOG(5, "LZ4HC_compress_optimal(dst=%p, dstCapa=%u)", dst, (unsigned)dstCapacity);
     *srcSizePtr = 0;
     if (limit == fillOutput) oend -= LASTLITERALS;   /* Hack for support LZ4 format restriction */
-    if (sufficient_len >= LZ4_OPT_NUM) sufficient_len = LZ4_OPT_NUM-1;
+    if (sufficient_len >= LZ4_INTERNAL_OPT_NUM) sufficient_len = LZ4_INTERNAL_OPT_NUM-1;
 
     /* Main Loop */
     assert(ip - anchor < LZ4_MAX_INPUT_SIZE);
@@ -1338,9 +1326,9 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
          }   }
          /* set prices using initial match */
          {   int mlen = MINMATCH;
-             int const matchML = firstMatch.len;   /* necessarily < sufficient_len < LZ4_OPT_NUM */
+             int const matchML = firstMatch.len;   /* necessarily < sufficient_len < LZ4_INTERNAL_OPT_NUM */
              int const offset = firstMatch.off;
-             assert(matchML < LZ4_OPT_NUM);
+             assert(matchML < LZ4_INTERNAL_OPT_NUM);
              for ( ; mlen <= matchML ; mlen++) {
                  int const cost = LZ4HC_sequencePrice(llen, mlen);
                  opt[mlen].mlen = mlen;
@@ -1352,7 +1340,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
          }   }
          last_match_pos = firstMatch.len;
          {   int addLit;
-             for (addLit = 1; addLit <= TRAILING_LITERALS; addLit ++) {
+             for (addLit = 1; addLit <= LZ4_INTERNAL_TRAILING_LITERALS; addLit ++) {
                  opt[last_match_pos+addLit].mlen = 1; /* literal */
                  opt[last_match_pos+addLit].off = 0;
                  opt[last_match_pos+addLit].litlen = addLit;
@@ -1389,7 +1377,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
              if (!newMatch.len) continue;
 
              if ( ((size_t)newMatch.len > sufficient_len)
-               || (newMatch.len + cur >= LZ4_OPT_NUM) ) {
+               || (newMatch.len + cur >= LZ4_INTERNAL_OPT_NUM) ) {
                  /* immediate encoding */
                  best_mlen = newMatch.len;
                  best_off = newMatch.off;
@@ -1416,7 +1404,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
              {   int const matchML = newMatch.len;
                  int ml = MINMATCH;
 
-                 assert(cur + newMatch.len < LZ4_OPT_NUM);
+                 assert(cur + newMatch.len < LZ4_INTERNAL_OPT_NUM);
                  for ( ; ml <= matchML ; ml++) {
                      int const pos = cur + ml;
                      int const offset = newMatch.off;
@@ -1434,11 +1422,11 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
                      }
 
                     assert((U32)favorDecSpeed <= 1);
-                     if (pos > last_match_pos+TRAILING_LITERALS
+                     if (pos > last_match_pos+LZ4_INTERNAL_TRAILING_LITERALS
                       || price <= opt[pos].price - (int)favorDecSpeed) {
                          DEBUGLOG(7, "rPos:%3i => price:%3i (matchlen=%i)",
                                      pos, price, ml);
-                         assert(pos < LZ4_OPT_NUM);
+                         assert(pos < LZ4_INTERNAL_OPT_NUM);
                          if ( (ml == matchML)  /* last pos of last match */
                            && (last_match_pos < pos) )
                              last_match_pos = pos;
@@ -1449,7 +1437,7 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
              }   }   }
              /* complete following positions with literals */
              {   int addLit;
-                 for (addLit = 1; addLit <= TRAILING_LITERALS; addLit ++) {
+                 for (addLit = 1; addLit <= LZ4_INTERNAL_TRAILING_LITERALS; addLit ++) {
                      opt[last_match_pos+addLit].mlen = 1; /* literal */
                      opt[last_match_pos+addLit].off = 0;
                      opt[last_match_pos+addLit].litlen = addLit;
@@ -1458,13 +1446,13 @@ static int LZ4HC_compress_optimal ( LZ4HC_CCtx_internal* ctx,
              }   }
          }  /* for (cur = 1; cur <= last_match_pos; cur++) */
 
-         assert(last_match_pos < LZ4_OPT_NUM + TRAILING_LITERALS);
+         assert(last_match_pos < LZ4_INTERNAL_OPT_NUM + LZ4_INTERNAL_TRAILING_LITERALS);
          best_mlen = opt[last_match_pos].mlen;
          best_off = opt[last_match_pos].off;
          cur = last_match_pos - best_mlen;
 
  encode: /* cur, last_match_pos, best_mlen, best_off must be set */
-         assert(cur < LZ4_OPT_NUM);
+         assert(cur < LZ4_INTERNAL_OPT_NUM);
          assert(last_match_pos >= 1);  /* == 1 when only one candidate */
          DEBUGLOG(6, "reverse traversal, looking for shortest path (last_match_pos=%i)", last_match_pos);
          {   int candidate_pos = cur;

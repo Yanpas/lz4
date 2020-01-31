@@ -197,9 +197,23 @@ LZ4LIB_API int LZ4_saveDictHC (LZ4_streamHC_t* streamHCPtr, char* safeBuffer, in
 #define LZ4HC_HASHTABLESIZE (1 << LZ4HC_HASH_LOG)
 #define LZ4HC_HASH_MASK (LZ4HC_HASHTABLESIZE - 1)
 
+#define LZ4_INTERNAL_OPT_NUM (1<<12)
+#define LZ4_INTERNAL_TRAILING_LITERALS 3
+
+/* ================================================
+ *  LZ4 Optimal parser (levels [LZ4HC_CLEVEL_OPT_MIN - LZ4HC_CLEVEL_MAX])
+ * ===============================================*/
+// internal only
+typedef struct {
+    int price;
+    int off;
+    int mlen;
+    int litlen;
+} LZ4HC_optimal_t;
 
 #if defined(__cplusplus) || (defined (__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) /* C99 */)
 #include <stdint.h>
+
 
 typedef struct LZ4HC_CCtx_internal LZ4HC_CCtx_internal;
 struct LZ4HC_CCtx_internal
@@ -217,6 +231,7 @@ struct LZ4HC_CCtx_internal
                                    otherwise, favor compression ratio */
     int8_t     dirty;           /* stream has to be fully reset if this flag is set */
     const LZ4HC_CCtx_internal* dictCtx;
+    LZ4HC_optimal_t optimal[LZ4_INTERNAL_OPT_NUM + LZ4_INTERNAL_TRAILING_LITERALS];
 };
 
 #else
@@ -237,6 +252,7 @@ struct LZ4HC_CCtx_internal
                                         otherwise, favor compression ratio */
     char           dirty;            /* stream has to be fully reset if this flag is set */
     const LZ4HC_CCtx_internal* dictCtx;
+    LZ4HC_optimal_t optimal[LZ4_INTERNAL_OPT_NUM + LZ4_INTERNAL_TRAILING_LITERALS];
 };
 
 #endif
@@ -245,7 +261,7 @@ struct LZ4HC_CCtx_internal
 /* Do not use these definitions directly !
  * Declare or allocate an LZ4_streamHC_t instead.
  */
-#define LZ4_STREAMHCSIZE       (4*LZ4HC_HASHTABLESIZE + 2*LZ4HC_MAXD + 56 + ((sizeof(void*)==16) ? 56 : 0) /* AS400*/ ) /* 262200 or 262256*/
+#define LZ4_STREAMHCSIZE       (4*LZ4HC_HASHTABLESIZE + 2*LZ4HC_MAXD + 56 + ((sizeof(void*)==16) ? 56 : 0) + sizeof(LZ4HC_optimal_t)*(LZ4_INTERNAL_OPT_NUM + LZ4_INTERNAL_TRAILING_LITERALS) /* AS400*/ ) /* 262200 or 262256*/
 #define LZ4_STREAMHCSIZE_SIZET (LZ4_STREAMHCSIZE / sizeof(size_t))
 union LZ4_streamHC_u {
     size_t table[LZ4_STREAMHCSIZE_SIZET];
